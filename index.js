@@ -19,7 +19,7 @@ function _process(self, data) {
 
         if (request.jsonrpc !== '2.0') throw new RPCException('Invalid Request', -32600);
     }
-	catch (e) {        
+    catch (e) {        
        GUtil.log(GUtil.LOG_ERROR, "\x1b[31mHTTP ERROR: %s\x1b[0m\n", JSON.stringify(e));
        return;
     }
@@ -88,7 +88,7 @@ RPC.prototype.getUniqueId = function () {
 }
 
 RPC.prototype.call = function (method, params, callback, timeout) {
-	
+    
     var self = this;
     
     var Deferred = require('simply-deferred').Deferred;
@@ -120,16 +120,21 @@ RPC.prototype.call = function (method, params, callback, timeout) {
     request
     .on('error', function (err){
         GUtil.log(GUtil.LOG_ERROR, "HTTP error: %s\n", err.message);
-		clearTimeout(self.deferredRequest[id].timeout);
-		delete self.deferredRequest[id];
-		d.reject({
+        clearTimeout(self.deferredRequest[id].timeout);
+        delete self.deferredRequest[id];
+        d.reject({
             code: -32603,
             message: "Internal error"
-		})
+        })
     })
     .on('response', function (response) {
         if (response.statusCode !== 200) return;
-        response.on('data', function (data){
+        var data = new Buffer(0);
+        response
+        .on('data', function (d) {
+            data = Buffer.concat([data, d]);
+        })
+        .on('end', function () {
             _process(self, data);
         });
     })
@@ -152,7 +157,7 @@ RPC.prototype.call = function (method, params, callback, timeout) {
         });
     }, timeout || 5000);
         
-	return d.promise();
+    return d.promise();
 };
 
 module.exports = {
