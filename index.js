@@ -43,22 +43,24 @@ function _process(self, data) {
     
 }
 
-var RPC = function () {
-    this.deferredRequest = {};
-    this.RPCCallback = {};
-    this.Exception = RPCException;
-}
-
-RPC.prototype.connect = function (path) {
+var RPC = function (url, query) {
 
     var self = this;
-    
-    var url = require('url').parse(path);
+
+    self.deferredRequest = {};
+    self.RPCCallback = {};
+    self.Exception = RPCException;
+
+    var url = require('url').parse(url, true);
     
     self.hostname = url.hostname;
     self.port = url.port || 80;
-    self.path = url.path;
+    url.query = url.query || {};
+    if (query) {
+        require('lodash').extend(url.query, query);
+    }
 
+    self.path = require('url').format({pathname:url.pathname, query:url.query});
     GUtil.log(GUtil.LOG_INFO, 'HTTP-RPC hostname:%s port:%d path:%s\n', self.hostname, self.port, self.path);
     
     return self;
@@ -72,10 +74,7 @@ var _uniqid = 0;
 var Moment = require('moment');
 
 RPC.prototype.getUniqueId = function () {
-    // var uuid = require("uuid");
-    // var buffer = new Buffer(16);
-    // uuid.v4(null, buffer);
-    // return buffer.toString("hex");
+
     var sec = Moment().valueOf();
     if (sec !== _uniqsec) {
         _uniqsec = sec;
@@ -99,7 +98,7 @@ RPC.prototype.call = function (method, params, callback, timeout) {
     var data = {
         jsonrpc:'2.0',
         method: method,
-        params: params,
+        params: params || [],
         id: id
     };
     
@@ -161,8 +160,7 @@ RPC.prototype.call = function (method, params, callback, timeout) {
 };
 
 module.exports = {
-    connect: function (path) {
-        var rpc = new RPC;
-        return rpc.connect(path);
+    connect: function (url, query) {
+        return new RPC(url, query);
     }
 };
