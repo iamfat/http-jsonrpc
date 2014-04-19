@@ -7,14 +7,22 @@ Examples
 ========
 
 ````javascript
-var rpc = require('http-jsonrpc').connect('http://path/to/rpc');
-rpc
+var rpc = require('http-jsonrpc');
+
+var client = rpc.connect('http://path/to/rpc', {q:"xxx"});
+
+client
 .call('method', [p1,p2,p3])
 .done(function(ret){
-})
-.fail(function(err){
-})
-.always(function(){
+}, function(err){
 });
+
+var server = rpc.server();
+server.process(request);
+
+var http = require('http');
+http.createServer(function(req, res){
+    server.process(req, res);
+}).listen(8080);
 
 ````

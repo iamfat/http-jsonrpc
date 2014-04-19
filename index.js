@@ -1,5 +1,7 @@
 var EventEmitter = require('events').EventEmitter;
-var GUtil = require("genee-util");
+var Winston = require("winston");
+var Util = require("util");
+var Promise = require('promise');
 
 function RPCException(message, value) {
     this.value = value || 0;
@@ -9,61 +11,154 @@ function RPCException(message, value) {
     };
 }
 
-function _process(self, data) {
-    var request;
+function _process(data) {
+    var response;
+    var self = this;
 
     try {
         
-        request = JSON.parse(data);
-        GUtil.log(GUtil.LOG_DEBUG, "\x1b[1;30mHTTP [%s] <= %s\x1b[0m\n", request.id || 'N/A', JSON.stringify(request));
-
-        if (request.jsonrpc !== '2.0') throw new RPCException('Invalid Request', -32600);
+        response = JSON.parse(data);
+        Winston.debug(Util.format(
+            "\x1b[1;30mHTTP [%s] <= %s\x1b[0m", 
+            response.id || 'N/A', JSON.stringify(response)
+        ));
     }
     catch (e) {        
-       GUtil.log(GUtil.LOG_ERROR, "\x1b[31mHTTP ERROR: %s\x1b[0m\n", JSON.stringify(e));
+       Winston.error(Util.format(
+           "\x1b[31mHTTP ERROR: %s\x1b[0m", JSON.stringify(e)
+       ));
        return;
     }
     
-    if (request.id && self.deferredRequest.hasOwnProperty(request.id)) {
-        var rq = self.deferredRequest[request.id];
-        clearTimeout(rq.timeout);
-        delete self.deferredRequest[request.id];
+    if (response.jsonrpc !== '2.0') {
+        Winston.error(Util.format(
+            "\x1b[31mInvalid Request: %s[0m", JSON.stringify(response)
+        ));
+        return;
+    }
 
-        if (request.hasOwnProperty('result')) {
-            rq.deferred.resolve(request.result);
+    if (response.id && self.promisedRequests.hasOwnProperty(response.id)) {
+        var rq = self.promisedRequests[response.id];
+        clearTimeout(rq.timeout);
+        delete self.promisedRequests[response.id];
+
+        if (response.hasOwnProperty('result')) {
+            rq.resolve(response.result);
         }
-        else if (request.hasOwnProperty('error')){
-            rq.deferred.reject(request.error);
+        else if (response.hasOwnProperty('error')){
+            rq.reject(response.error);
         }
         else {
-            rq.deferred.reject({code: 0, message: "Unknown Error"});
+            rq.reject({code: 0, message: "Unknown Error"});
         }
 
     }
     
 }
 
-var RPC = function (url, query) {
-
+function _processRequest(data, response) {
+    var request;
     var self = this;
-
-    self.deferredRequest = {};
-    self.RPCCallback = {};
-    self.Exception = RPCException;
-
-    var url = require('url').parse(url, true);
     
-    self.hostname = url.hostname;
-    self.port = url.port || 80;
-    url.query = url.query || {};
-    if (query) {
-        require('lodash').extend(url.query, query);
+    try {
+        
+        request = JSON.parse(data);
+        Winston.debug(Util.format(
+            "\x1b[1;30mHTTP [%s] <= %s\x1b[0m", 
+            request.id || 'N/A', JSON.stringify(request)
+        ));
+
+    }
+    catch (e) {        
+        response.apply(self, [{
+            jsonrpc:'2.0',
+            error: {
+                code: -32700,
+                message: 'Parse error'
+            }
+        }]);
+       return;
+    }
+    
+    if (request.jsonrpc !== '2.0') {
+        response.apply(self, [{
+            jsonrpc:'2.0',
+            error: {
+                code: -32600,
+                message: 'Invalid Request'
+            }
+        }]);
+        return;
     }
 
-    self.path = require('url').format({pathname:url.pathname, query:url.query});
-    GUtil.log(GUtil.LOG_INFO, 'HTTP-RPC hostname:%s port:%d path:%s\n', self.hostname, self.port, self.path);
+    if (request.hasOwnProperty('method')) {
+
+        function _response_cb(e, result) {
+            
+            if (e) {
+                if (request.id) {
+                    response.apply(self, [{
+                        jsonrpc: "2.0",
+                        error: {
+                            code: e.code || -32603,
+                            message: e.message || "Internal Error"
+                        },
+                        id: request.id
+                    }]);    
+                }
+            }
+            else {
+                if (result !== undefined && request.id) {                
+                    response.apply(self, [{
+                        jsonrpc: "2.0",
+                        result: result,
+                        id: request.id
+                    }]);                   
+                }
+
+            }
+            
+        }
+
+        var cb = self._callings[request.method];
+        if (!cb) _response_cb({code: -32601, message: 'Method not found'});
+        
+        try {
+            var result = cb.apply(self, [request.params]);
+        } catch (e) {
+            if (e instanceof RPCException) {
+                _response_cb(e);
+            } else {
+                throw e;
+            }        
+        }
+        
+        if (typeof(result) == 'function') {
+            // deferred callback
+            result(_response);
+        } else {
+            _response_cb(null, result);
+        }
+
+    } else {
+        response.apply(self, [{
+            jsonrpc:'2.0',
+            error: {
+                code: -32600,
+                message: 'Invalid Request'
+            }
+        }]);
+    }
     
-    return self;
+    
+}
+
+var RPC = function () {
+    this.promisedRequests = {};
+    this._callings = {};
+    this.callTimeout = 5000;
+    this.isServer = false;
+    this.Exception = RPCException;
 };
 
 // inherit EventEmitter
@@ -86,81 +181,169 @@ RPC.prototype.getUniqueId = function () {
     return _uniqsec.toString(36) + _uniqid.toString();
 }
 
-RPC.prototype.call = function (method, params, callback, timeout) {
+RPC.prototype.calling = function (method, cb) {
+    var self = this;
+    self._callings[method] = cb;
+    return self;
+}
+
+RPC.prototype.removeCalling = function (key) {
+    var self = this;
+    if (self._callings.hasOwnProperty(key)) delete self._callings[key];
+    return self;
+}
+
+RPC.prototype.removeCallings = function (pattern) {
+    var self = this;
+    var wildcard = require('wildcard');
+
+    wildcard(pattern, Object.keys(self._callings)).forEach(function (key){
+        delete self._callings[key];
+    });
+
+    return self;
+}
+
+RPC.prototype.call = function (method, params) {
     
     var self = this;
     
-    var Deferred = require('simply-deferred').Deferred;
-    var d = new Deferred();
+    return new Promise(function(resolve, reject){
+        var id = self.getUniqueId();
     
-    var id = self.getUniqueId();
+        var data = {
+            jsonrpc:'2.0',
+            method: method,
+            params: params || [],
+            id: id
+        };
     
-    var data = {
-        jsonrpc:'2.0',
-        method: method,
-        params: params || [],
-        id: id
-    };
-    
-    var post = new Buffer(JSON.stringify(data));
+        Winston.debug(Util.format(
+            "\x1b[1;30mHTTP hostname=%s port=%s path=%s\x1b[0m", 
+            self.hostname, self.port, self.path
+        ));    
 
-    var request = require('http').request({
-        hostname: self.hostname,
-        port: self.port,
-        path: self.path,
-        headers: {
-            'Content-Length': post.length
-        },
-        method: 'POST'
-    })
-    
-    // GUtil.log(GUtil.LOG_DEBUG, "\x1b[1;30mHTTP hostname=%s port=%s path=%s\x1b[0m\n", self.hostname, self.port, self.path);    
+        Winston.debug(Util.format(
+            "\x1b[1;30mHTTP [%s] => %s\x1b[0m", 
+            id, JSON.stringify(data)
+        ));    
 
-    request
-    .on('error', function (err){
-        GUtil.log(GUtil.LOG_ERROR, "HTTP error: %s\n", err.message);
-        clearTimeout(self.deferredRequest[id].timeout);
-        delete self.deferredRequest[id];
-        d.reject({
-            code: -32603,
-            message: "Internal error"
+        self.promisedRequests[id] = {
+            method: method,
+            params: params,
+            resolve: resolve,
+            reject: reject
+        };
+
+        self.promisedRequests[id].timeout = setTimeout(function (){
+            Winston.debug(Util.format("HTTP [%s] <= timeout", id));
+            delete self.promisedRequests[id];
+            reject({
+                code: -32603,
+                message: "Call Timeout"
+            });
+        }, self.callTimeout);
+
+        var post = new Buffer(JSON.stringify(data));
+
+        var request = require('http').request({
+            hostname: self.hostname,
+            port: self.port,
+            path: self.path,
+            headers: {
+                'Content-Length': post.length
+            },
+            method: 'POST'
         })
-    })
-    .on('response', function (response) {
-        if (response.statusCode !== 200) return;
-        var data = new Buffer(0);
-        response
-        .on('data', function (d) {
-            data = Buffer.concat([data, d]);
+    
+        request
+        .on('error', function (err){
+            Winston.error(Util.format(
+                "HTTP error: %s code: %d", 
+                err.message, err.code
+            ));
+            clearTimeout(self.promisedRequests[id].timeout);
+            delete self.promisedRequests[id];
+            reject({
+                code: -32603,
+                message: "Internal error"
+            })
         })
-        .on('end', function () {
-            _process(self, data);
-        });
-    })
-    
-    GUtil.log(GUtil.LOG_DEBUG, "\x1b[1;30mHTTP [%s] => %s\x1b[0m\n", id, JSON.stringify(data));    
-    request.end(post);
-    
-    self.deferredRequest[id] = {
-        method: method,
-        params: params,
-        deferred: d
-    };
+        .on('response', function (response) {
+            
+            if (response.statusCode !== 200) {
+                request.emit('error', {
+                    code: -1,
+                    message: "Status code is not 200"
+                });
+                return;
+            }
 
-    self.deferredRequest[id].timeout = setTimeout(function (){
-        GUtil.log(GUtil.LOG_DEBUG, "HTTP [%s] <= timeout\n", id);
-        delete self.deferredRequest[id];
-        d.reject({
-            code: -32603,
-            message: "Call Timeout"
-        });
-    }, timeout || 5000);
-        
-    return d.promise();
+            var data = new Buffer(0);
+            response
+            .on('data', function (d) {
+                data = Buffer.concat([data, d]);
+            })
+            .on('end', function () {
+                _process.apply(self, [data]);
+            });
+        })
+    
+        request.end(post);
+    
+    });
+    
 };
+
+RPC.prototype.connect = function (url, query) {
+    
+    var self = this;
+    self.isServer = false;
+    
+    var u = require('url').parse(url, true);
+    
+    self.hostname = u.hostname;
+    self.port = u.port || 80;
+    u.query = u.query || {};
+    if (query) {
+        require('lodash').extend(u.query, query);
+    }
+
+    self.path = require('url').format({pathname:u.pathname, query:u.query});
+    Winston.info(Util.format(
+        'HTTP-RPC hostname:%s port:%d path:%s', 
+        self.hostname, self.port, self.path
+    ));
+    
+    return self;
+};
+
+RPC.prototype.process = function (req, res) {
+    
+    var self = this;
+    
+    var data = new Buffer(0);
+
+    req
+    .on('data', function (d) {
+        data = Buffer.concat([data, d]);
+    })
+    .on('end', function () {
+        _processRequest.apply(self, [data, function(ret) {
+            res.end(JSON.stringify(ret));
+        }]);
+    });
+  
+}
 
 module.exports = {
     connect: function (url, query) {
-        return new RPC(url, query);
+        var rpc = new RPC();
+        return rpc.connect(url, query);
+    },
+    server: function () {
+        var rpc = new RPC();
+        rpc.isServer = true;
+        return rpc;
     }
 };

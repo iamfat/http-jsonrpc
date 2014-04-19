@@ -1,17 +1,15 @@
 {
   "name": "http-jsonrpc",
-  "version": "0.1.2",
+  "version": "0.1.0",
   "description": "JSON-RPC 2.0 over HTTP protocol",
   "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
   "author": "Jia Huang <iamfat@gmail.com>",
   "license": "MIT",
   "dependencies": {
-    "genee-util": "~0.1.0",
-    "simply-deferred": "~2.4.0",
+    "lodash": "~2.4.1",
     "moment": "~2.4.0",
-    "lodash": "~2.4.1"
+    "promise": "^4.0.0",
+    "wildcard": "^0.1.4",
+    "winston": "^0.7.3"
   }
 }
