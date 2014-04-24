@@ -1,6 +1,6 @@
 {
   "name": "http-jsonrpc",
-  "version": "0.1.0",
+  "version": "0.1.3",
   "description": "JSON-RPC 2.0 over HTTP protocol",
   "main": "index.js",
   "author": "Jia Huang <iamfat@gmail.com>",
