@@ -11,5 +11,8 @@
     "promise": "^4.0.0",
     "wildcard": "^0.1.4",
     "winston": "^0.7.3"
+  },
+  "devDependencies": {
+    "blanket": "^1.1.6"
   }
 }

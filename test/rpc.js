@@ -1,4 +1,8 @@
-var Winston = require('winston');
+require('blanket')({
+    pattern: function (filename) {
+        return !/node_modules/.test(filename);
+    }
+});
 
 var httpRPC = require('../');
 var assert = require("assert");
@@ -25,8 +29,21 @@ describe("JSON RPC over HTTP:", function(){
         .done(function(ret){
             assert.equal(ret, "bar");
             done();
-        }, function(err) {
-            console.log(2);
+        }, done);
+
+    })
+
+    it("should catch Exception", function(done) {
+
+        server.calling("foo", function(params) {
+            throw new server.Exception("mocha", 9628);
+        });
+
+        client
+        .call("foo", {foo:"bar"})
+        .done(done, function(err) {
+            assert.equal(err.message, "mocha");
+            assert.equal(err.code, 9628);
             done();
         });
 

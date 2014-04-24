@@ -3,8 +3,8 @@ var Winston = require("winston");
 var Util = require("util");
 var Promise = require('promise');
 
-function RPCException(message, value) {
-    this.value = value || 0;
+function RPCException(message, code) {
+    this.code = code || 0;
     this.message = message;
     this.toString = function () {
       return this.message;
@@ -18,21 +18,21 @@ function _process(data) {
     try {
         
         response = JSON.parse(data);
-        Winston.debug(Util.format(
-            "\x1b[1;30mHTTP [%s] <= %s\x1b[0m", 
+        self.logger.debug(Util.format(
+            "HTTP [%s] <= %s", 
             response.id || 'N/A', JSON.stringify(response)
         ));
     }
     catch (e) {        
-       Winston.error(Util.format(
-           "\x1b[31mHTTP ERROR: %s\x1b[0m", JSON.stringify(e)
+       self.logger.error(Util.format(
+           "HTTP ERROR: %s", JSON.stringify(e)
        ));
        return;
     }
     
     if (response.jsonrpc !== '2.0') {
-        Winston.error(Util.format(
-            "\x1b[31mInvalid Request: %s[0m", JSON.stringify(response)
+        self.logger.error(Util.format(
+            "Invalid Request: %s", JSON.stringify(response)
         ));
         return;
     }
@@ -63,8 +63,8 @@ function _processRequest(data, response) {
     try {
         
         request = JSON.parse(data);
-        Winston.debug(Util.format(
-            "\x1b[1;30mHTTP [%s] <= %s\x1b[0m", 
+        self.logger.debug(Util.format(
+            "HTTP [%s] <= %s", 
             request.id || 'N/A', JSON.stringify(request)
         ));
 
@@ -159,6 +159,7 @@ var RPC = function () {
     this.callTimeout = 5000;
     this.isServer = false;
     this.Exception = RPCException;
+    this.logger = new Winston.Logger();
 };
 
 // inherit EventEmitter
@@ -218,13 +219,13 @@ RPC.prototype.call = function (method, params) {
             id: id
         };
     
-        Winston.debug(Util.format(
-            "\x1b[1;30mHTTP hostname=%s port=%s path=%s\x1b[0m", 
+        self.logger.debug(Util.format(
+            "HTTP hostname=%s port=%s path=%s", 
             self.hostname, self.port, self.path
         ));    
 
-        Winston.debug(Util.format(
-            "\x1b[1;30mHTTP [%s] => %s\x1b[0m", 
+        self.logger.debug(Util.format(
+            "HTTP [%s] => %s", 
             id, JSON.stringify(data)
         ));    
 
@@ -236,7 +237,7 @@ RPC.prototype.call = function (method, params) {
         };
 
         self.promisedRequests[id].timeout = setTimeout(function (){
-            Winston.debug(Util.format("HTTP [%s] <= timeout", id));
+            self.logger.debug(Util.format("HTTP [%s] <= timeout", id));
             delete self.promisedRequests[id];
             reject({
                 code: -32603,
@@ -258,7 +259,7 @@ RPC.prototype.call = function (method, params) {
     
         request
         .on('error', function (err){
-            Winston.error(Util.format(
+            self.logger.error(Util.format(
                 "HTTP error: %s code: %d", 
                 err.message, err.code
             ));
@@ -310,7 +311,7 @@ RPC.prototype.connect = function (url, query) {
     }
 
     self.path = require('url').format({pathname:u.pathname, query:u.query});
-    Winston.info(Util.format(
+    self.logger.info(Util.format(
         'HTTP-RPC hostname:%s port:%d path:%s', 
         self.hostname, self.port, self.path
     ));
