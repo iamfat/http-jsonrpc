@@ -5,6 +5,18 @@
   "main": "index.js",
   "author": "Jia Huang <iamfat@gmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iamfat/http-jsonrpc.git"
+  },
+  "keywords": [
+    "JSON",
+    "RPC"
+  ],
+  "bugs": {
+    "url": "https://github.com/iamfat/http-jsonrpc/issues"
+  },
+  "homepage": "https://github.com/iamfat/http-jsonrpc",
   "dependencies": {
     "lodash": "~2.4.1",
     "moment": "~2.4.0",
