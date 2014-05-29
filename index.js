@@ -262,8 +262,12 @@ RPC.prototype.call = function (method, params) {
                 "HTTP error: %s code: %d", 
                 err.message, err.code
             ));
-            clearTimeout(self.promisedRequests[id].timeout);
-            delete self.promisedRequests[id];
+            if (self.promisedRequests[id]) {
+                if (self.promisedRequests[id].timeout) {
+                    clearTimeout(self.promisedRequests[id].timeout);
+                }
+                delete self.promisedRequests[id];
+            }
             reject({
                 code: -32603,
                 message: "Internal error"
