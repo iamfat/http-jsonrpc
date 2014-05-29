@@ -135,7 +135,7 @@ function _processRequest(data, response) {
         
         if (typeof(result) == 'function') {
             // deferred callback
-            result(_response);
+            result(_response_cb);
         } else {
             _response_cb(null, result);
         }
