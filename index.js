@@ -157,7 +157,6 @@ var RPC = function () {
     this.promisedRequests = {};
     this._callings = {};
     this.callTimeout = 5000;
-    this.isServer = false;
     this.Exception = RPCException;
     this.logger = new Winston.Logger();
 };
@@ -299,7 +298,6 @@ RPC.prototype.call = function (method, params) {
 RPC.prototype.connect = function (url, query) {
     
     var self = this;
-    self.isServer = false;
     
     var u = require('url').parse(url, true);
     
@@ -337,14 +335,18 @@ RPC.prototype.process = function (req, res) {
   
 }
 
-module.exports = {
-    connect: function (url, query) {
-        var rpc = new RPC();
-        return rpc.connect(url, query);
-    },
-    server: function () {
-        var rpc = new RPC();
-        rpc.isServer = true;
-        return rpc;
-    }
+var RPCWrapper = function() {
+    return new RPC();
+}
+
+RPCWrapper.connect = function (url, query) {
+    var rpc = new RPC();
+    return rpc.connect(url, query);
 };
+
+RPCWrapper.server = function () {
+    var rpc = new RPC();
+    return rpc;
+};
+
+module.exports = RPCWrapper;
