@@ -246,7 +246,7 @@ RPC.prototype.call = function (method, params) {
 
         var post = new Buffer(JSON.stringify(data));
 
-        var request = require('http').request({
+        var opt = {
             hostname: self.hostname,
             port: self.port,
             path: self.path,
@@ -254,8 +254,12 @@ RPC.prototype.call = function (method, params) {
                 'Content-Length': post.length
             },
             method: 'POST'
-        })
-    
+        };
+
+        if (self.cookie) opt.headers['Cookie'] = self.cookie;
+
+        var request = require('http').request(opt);
+
         request
         .on('error', function (err){
             self.logger.error(Util.format(
@@ -274,6 +278,9 @@ RPC.prototype.call = function (method, params) {
             })
         })
         .on('response', function (response) {
+            if (response.headers['set-cookie']) {
+                self.cookie = response.headers['set-cookie'];
+            }
             
             if (response.statusCode !== 200) {
                 request.emit('error', {
