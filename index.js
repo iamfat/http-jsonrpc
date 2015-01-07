@@ -159,6 +159,9 @@ var RPC = function () {
     this.callTimeout = 5000;
     this.Exception = RPCException;
     this.logger = new Winston.Logger();
+    this.maxConcurrency = 0;
+    this.concurrency = 0;
+    this.requestQueue = [];
 };
 
 // inherit EventEmitter
@@ -209,99 +212,135 @@ RPC.prototype.call = function (method, params) {
     var self = this;
     
     return new Promise(function(resolve, reject){
-        var id = self.getUniqueId();
-    
-        var data = {
-            jsonrpc:'2.0',
-            method: method,
-            params: params || [],
-            id: id
-        };
-    
-        self.logger.debug(Util.format(
-            "HTTP hostname=%s port=%s path=%s", 
-            self.hostname, self.port, self.path
-        ));    
 
-        self.logger.debug(Util.format(
-            "HTTP [%s] => %s", 
-            id, JSON.stringify(data)
-        ));    
-
-        self.promisedRequests[id] = {
-            method: method,
-            params: params,
-            resolve: resolve,
-            reject: reject
-        };
-
-        self.promisedRequests[id].timeout = setTimeout(function (){
-            self.logger.debug(Util.format("HTTP [%s] <= timeout", id));
-            delete self.promisedRequests[id];
-            reject({
-                code: -32603,
-                message: "Call Timeout"
-            });
-        }, self.callTimeout);
-
-        var post = new Buffer(JSON.stringify(data));
-
-        var opt = {
-            hostname: self.hostname,
-            port: self.port,
-            path: self.path,
-            headers: {
-                'Content-Length': post.length
-            },
-            method: 'POST'
-        };
-
-        if (self.cookie) opt.headers['Cookie'] = self.cookie;
-
-        var request = require('http').request(opt);
-
-        request
-        .on('error', function (err){
-            self.logger.error(Util.format(
-                "HTTP error: %s code: %d", 
-                err.message, err.code
-            ));
-            if (self.promisedRequests[id]) {
-                if (self.promisedRequests[id].timeout) {
-                    clearTimeout(self.promisedRequests[id].timeout);
+        var throttle = (function(resolve, reject){
+            return {
+                resolve: function() {
+                    resolve.apply(this, arguments);
+                    _popRequest();
+                },
+                reject: function() {
+                    reject.apply(this, arguments);
+                    _popRequest();
                 }
-                delete self.promisedRequests[id];
-            }
-            reject({
-                code: -32603,
-                message: "Internal error"
-            })
-        })
-        .on('response', function (response) {
-            if (response.headers['set-cookie']) {
-                self.cookie = response.headers['set-cookie'];
             }
             
-            if (response.statusCode !== 200) {
-                request.emit('error', {
-                    code: -1,
-                    message: "Status code is not 200"
-                });
-                return;
-            }
+        })(resolve, reject);
+        
+        resolve = throttle.resolve;
+        reject = throttle.reject;
 
-            var data = new Buffer(0);
-            response
-            .on('data', function (d) {
-                data = Buffer.concat([data, d]);
+        if (self.maxConcurrency == 0 || self.concurrency < self.maxConcurrency) {
+            _triggerRequest(method, params, resolve, reject);
+        } else {
+            self.requestQueue.push({method: method, params: params, resolve: resolve, reject: reject });
+        }
+    
+        function _popRequest() {
+            if (self.concurrency > 0) self.concurrency--;
+            if (self.requestQueue.length > 0) {
+                var o = self.requestQueue.pop();
+                _triggerRequest(o.method, o.params, o.resolve, o.reject);
+            }
+        }
+        
+        function _triggerRequest(method, params, resolve, reject) {
+
+            var id = self.getUniqueId();
+        
+            var data = {
+                jsonrpc:'2.0',
+                method: method,
+                params: params || [],
+                id: id
+            };
+        
+            self.logger.debug(Util.format(
+                "HTTP hostname=%s port=%s path=%s", 
+                self.hostname, self.port, self.path
+            ));    
+
+            self.logger.debug(Util.format(
+                "HTTP [%s] => %s", 
+                id, JSON.stringify(data)
+            ));    
+
+            self.promisedRequests[id] = {
+                method: method,
+                params: params,
+                resolve: resolve,
+                reject: reject
+            };
+
+            self.promisedRequests[id].timeout = setTimeout(function () {
+                self.logger.debug(Util.format("HTTP [%s] <= timeout", id));
+                delete self.promisedRequests[id];
+                reject({
+                    code: -32603,
+                    message: "Call Timeout"
+                });
+            }, self.callTimeout);
+
+            var post = new Buffer(JSON.stringify(data));
+
+            var opt = {
+                hostname: self.hostname,
+                port: self.port,
+                path: self.path,
+                headers: {
+                    'Content-Length': post.length
+                },
+                method: 'POST'
+            };
+
+            if (self.cookie) opt.headers['Cookie'] = self.cookie;
+
+            var request = require('http').request(opt);
+
+            request
+            .on('error', function (err){
+                self.logger.error(Util.format(
+                    "HTTP error: %s code: %d", 
+                    err.message, err.code
+                ));
+                if (self.promisedRequests[id]) {
+                    if (self.promisedRequests[id].timeout) {
+                        clearTimeout(self.promisedRequests[id].timeout);
+                    }
+                    delete self.promisedRequests[id];
+                }
+                reject({
+                    code: -32603,
+                    message: "Internal error"
+                })
             })
-            .on('end', function () {
-                _process.apply(self, [data]);
-            });
-        })
-    
-        request.end(post);
-    
+            .on('response', function (response) {
+                if (response.headers['set-cookie']) {
+                    self.cookie = response.headers['set-cookie'];
+                }
+        
+                if (response.statusCode !== 200) {
+                    request.emit('error', {
+                        code: -1,
+                        message: "Status code is not 200"
+                    });
+                    return;
+                }
+
+                var data = new Buffer(0);
+                response
+                .on('data', function (d) {
+                    data = Buffer.concat([data, d]);
+                })
+                .on('end', function () {
+                    _process.apply(self, [data]);
+                });
+            })
+
+            request.end(post);
+            self.concurrency++;    
+        }
+
     });
     
 };
