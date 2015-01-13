@@ -207,7 +207,15 @@ RPC.prototype.removeCallings = function (pattern) {
     return self;
 }
 
+RPC.prototype.notify = function (method, params) {
+    return this._call(method, params, true);
+}
+
 RPC.prototype.call = function (method, params) {
+    return this._call(method, params, false);
+}
+
+RPC.prototype._call = function (method, params, notif) {
     
     var self = this;
     
@@ -246,40 +254,51 @@ RPC.prototype.call = function (method, params) {
         
         function _triggerRequest(method, params, resolve, reject) {
 
-            var id = self.getUniqueId();
-        
+            var id;
+
             var data = {
                 jsonrpc:'2.0',
                 method: method,
-                params: params || [],
-                id: id
+                params: params || []
             };
+
+            if (!notif) {
+                id = data.id = self.getUniqueId();
+            }
         
             self.logger.debug(Util.format(
                 "HTTP hostname=%s port=%s path=%s", 
                 self.hostname, self.port, self.path
             ));    
 
-            self.logger.debug(Util.format(
-                "HTTP [%s] => %s", 
-                id, JSON.stringify(data)
-            ));    
+            if (id) {
+                self.logger.debug(Util.format(
+                    "HTTP [%s] => %s",
+                    id, JSON.stringify(data)
+                ));
 
-            self.promisedRequests[id] = {
-                method: method,
-                params: params,
-                resolve: resolve,
-                reject: reject
-            };
+                self.promisedRequests[id] = {
+                    method: method,
+                    params: params,
+                    resolve: resolve,
+                    reject: reject
+                };
 
-            self.promisedRequests[id].timeout = setTimeout(function () {
-                self.logger.debug(Util.format("HTTP [%s] <= timeout", id));
-                delete self.promisedRequests[id];
-                reject({
-                    code: -32603,
-                    message: "Call Timeout"
-                });
-            }, self.callTimeout);
+                self.promisedRequests[id].timeout = setTimeout(function () {
+                    self.logger.debug(Util.format("HTTP [%s] <= timeout", id));
+                    delete self.promisedRequests[id];
+                    reject({
+                        code: -32603,
+                        message: "Call Timeout"
+                    });
+                }, self.callTimeout);
+
+            } else {
+                self.logger.debug(Util.format(
+                    "HTTP [notif] => %s",
+                    JSON.stringify(data)
+                ));
+            }
 
             var post = new Buffer(JSON.stringify(data));
 
@@ -295,6 +314,8 @@ RPC.prototype.call = function (method, params) {
 
             if (self.cookie) opt.headers['Cookie'] = self.cookie;
 
+            self.emit('beforeRequest', opt, post);
+
             var request = require('http').request(opt);
 
             request
@@ -303,7 +324,7 @@ RPC.prototype.call = function (method, params) {
                     "HTTP error: %s code: %d", 
                     err.message, err.code
                 ));
-                if (self.promisedRequests[id]) {
+                if (id && self.promisedRequests[id]) {
                     if (self.promisedRequests[id].timeout) {
                         clearTimeout(self.promisedRequests[id].timeout);
                     }
@@ -333,7 +354,11 @@ RPC.prototype.call = function (method, params) {
                     data = Buffer.concat([data, d]);
                 })
                 .on('end', function () {
-                    _process.apply(self, [data]);
+                    if (id) {
+                        _process.apply(self, [data]);
+                    } else {
+                        resolve();
+                    }
                 });
             })
 
