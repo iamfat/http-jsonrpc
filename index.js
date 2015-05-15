@@ -121,7 +121,10 @@ function _processRequest(data, response) {
         }
 
         var cb = self._callings[request.method];
-        if (!cb) _response_cb({code: -32601, message: 'Method not found'});
+        if (!cb) {
+            _response_cb({code: -32601, message: 'Method not found'});
+            return;
+        }
         
         try {
             var result = cb.apply(self, [request.params]);
