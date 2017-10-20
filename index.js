@@ -310,7 +310,8 @@ RPC.prototype._call = function (method, params, notif) {
                 port: self.port,
                 path: self.path,
                 headers: {
-                    'Content-Length': post.length
+                    'Content-Length': post.length,
+                    'Content-Type': 'application/json'
                 },
                 method: 'POST'
             };
