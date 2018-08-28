@@ -13,9 +13,9 @@ describe("JSON RPC over HTTP:", function(){
     var http = require('http');
     http.createServer(function(req, res){
         server.process(req, res);
-    }).listen(8080);
+    }).listen(8087);
 
-    var client = httpRPC.connect('http://localhost:8080/api');
+    var client = httpRPC.connect('http://localhost:8087/api');
 
     it("should be called", function(done) {
 

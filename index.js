@@ -161,7 +161,13 @@ var RPC = function () {
     this._callings = {};
     this.callTimeout = 5000;
     this.Exception = RPCException;
-    this.logger = new Winston.Logger();
+    this.logger = Winston.createLogger({
+        level: 'info',
+        format: Winston.format.cli(),
+        transports: [
+            new Winston.transports.Console()
+        ]
+    });
     this.maxConcurrency = 0;
     this.concurrency = 0;
     this.requestQueue = [];

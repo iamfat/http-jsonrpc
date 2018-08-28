@@ -22,7 +22,7 @@
     "moment": "~2.4.0",
     "promise": "^4.0.0",
     "wildcard": "^0.1.4",
-    "winston": "^0.7.3"
+    "winston": "^3.0.0"
   },
   "devDependencies": {
     "blanket": "^1.1.6"
